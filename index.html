@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCQ Forge AI</title>
+<style>
+:root{--bg:#f5f6fb;--card:#fff;--ink:#172033;--muted:#667085;--accent:#6246ea;--line:#e4e7ec}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{background:#17152d;color:white;padding:24px 18px}header h1{margin:0;font-size:26px}header p{margin:5px 0 0;color:#d7d3ff}
+main{max-width:850px;margin:20px auto;padding:0 14px 50px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin:14px 0;box-shadow:0 3px 14px #1720330a}
+h2{font-size:19px;margin:0 0 12px}.hint{font-size:13px;color:var(--muted)}label{display:block;font-weight:650;margin:12px 0 5px}
+input,select,textarea{width:100%;border:1px solid #cfd4df;border-radius:10px;padding:11px;font:inherit;background:white;color:var(--ink)}
+textarea{min-height:90px;resize:vertical}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+button{border:0;border-radius:11px;padding:12px 16px;font-weight:700;font-size:15px;cursor:pointer}
+.primary{background:var(--accent);color:white;width:100%;margin-top:16px}.secondary{background:#eeeaff;color:#3822a8}.danger{background:#fff0f0;color:#b42318}
+#status{margin-top:12px;font-size:14px;white-space:pre-wrap}.question{border-top:1px solid var(--line);padding:16px 0}.question:first-child{border-top:0}
+.opt{padding:8px 10px;border-radius:8px;background:#f7f8fc;margin:6px 0}.correct{background:#e9f8ef;border:1px solid #9ed9b1}
+.explain{font-size:14px;color:#344054;margin:8px 0 0}.pill{display:inline-block;background:#eeeaff;color:#3822a8;border-radius:20px;padding:3px 9px;font-size:12px;margin:3px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.actions button{flex:1}
+small{color:var(--muted)}.hidden{display:none!important}
+@media(max-width:560px){.grid{grid-template-columns:1fr}header h1{font-size:23px}}
+</style>
+</head>
+<body>
+<header><h1>MCQ Forge AI</h1><p>Turn your PDFs and images into difficult, exam-oriented MCQs.</p></header>
+<main>
+<section class="card">
+<h2>1. Connect AI</h2>
+<label for="apiKey">Gemini API key</label>
+<input id="apiKey" type="password" placeholder="Paste your Gemini API key" autocomplete="off">
+<p class="hint">Get a key from Google AI Studio. Your key is used only in this browser session and is not saved in this website or uploaded to GitHub. Gemini usage limits and charges depend on Google's current plan.</p>
+</section>
+<section class="card">
+<h2>2. Add your study material</h2>
+<label for="files">Upload PDF or images</label>
+<input id="files" type="file" accept=".pdf,image/*" multiple>
+<p class="hint">PDF text is extracted in your browser. Images are sent to Gemini for reading. Scanned PDFs may need to be uploaded as page images if they contain no selectable text.</p>
+<div id="fileInfo" class="hint">No files selected.</div>
+<label for="topic">Topic / chapter (optional)</label>
+<input id="topic" placeholder="e.g. Materials management, depreciation">
+<label for="extra">Special instructions (optional)</label>
+<textarea id="extra" placeholder="e.g. Theory-only questions; focus on FIFO, LIFO and weighted average."></textarea>
+</section>
+<section class="card">
+<h2>3. MCQ settings</h2>
+<div class="grid">
+<div><label for="count">Number of questions</label><select id="count"><option>20</option><option>50</option><option selected>100</option></select></div>
+<div><label for="difficulty">Difficulty</label><select id="difficulty"><option>Advanced</option><option selected>Very difficult</option><option>Expert</option></select></div>
+<div><label for="style">Question style</label><select id="style"><option selected>Mixed technical, logical and scenario-based</option><option>Theory-based only</option><option>Numerical and calculation-based</option><option>Scenario-based only</option></select></div>
+<div><label for="explain">Explanations</label><select id="explain"><option selected>Explain all four options</option><option>Explain correct answer only</option></select></div>
+</div>
+<button class="primary" id="generate">Generate MCQs with AI</button>
+<div id="status" role="status"></div>
+</section>
+<section class="card hidden" id="resultsCard">
+<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap"><h2>Generated MCQs</h2><span id="resultCount" class="pill"></span></div>
+<div id="results"></div>
+<div class="actions"><button class="secondary" id="copy">Copy all</button><button class="secondary" id="download">Download TXT</button></div>
+</section>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+let extractedText="", imageParts=[], generated=[];
+if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";}
+$("files").addEventListener("change",async e=>{
+  extractedText="";imageParts=[];const files=[...e.target.files];$("fileInfo").textContent="Reading files...";
+  try{
+    for(const f of files){
+      if(f.type==="application/pdf"||f.name.toLowerCase().endsWith(".pdf")){
+        if(!window.pdfjsLib)throw Error("PDF reader library could not load. Check your internet connection.");
+        const data=new Uint8Array(await f.arrayBuffer());const pdf=await pdfjsLib.getDocument({data}).promise;
+        for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const content=await page.getTextContent();extractedText+=`\n[${f.name} — page ${p}]\n`+content.items.map(x=>x.str).join(" ")+"\n";}
+      }else if(f.type.startsWith("image/")){
+        const dataUrl=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(f)});
+        const [meta,b64]=dataUrl.split(",");imageParts.push({inline_data:{mime_type:f.type,data:b64}});
+      }
+    }
+    $("fileInfo").textContent=`${files.length} file(s) ready. Extracted approximately ${extractedText.length.toLocaleString()} characters and ${imageParts.length} image(s).`;
+  }catch(err){$("fileInfo").textContent="File reading error: "+err.message;}
+});
+function buildPrompt(text,count){
+return `You are an expert examiner and question-bank author. Create EXACTLY ${count} ${$("difficulty").value} multiple-choice questions from the supplied study material only.
+
+MANDATORY EXAMINATION STANDARD:
+- Questions must be technically precise, logically challenging, exam-oriented and unambiguous.
+- Cover the full supplied topic fairly: definitions, principles, procedures, classifications, distinctions, exceptions, relationships, implications, controls, accounting treatment and practical application where present in the source.
+- Use plausible distractors based on common misconceptions. Avoid obviously wrong options, clues, repeated wording and duplicate questions.
+- Follow this requested style: ${$("style").value}.
+- Topic focus: ${$("topic").value||"All topics in the supplied material"}.
+- Additional instructions: ${$("extra").value||"None"}.
+- Provide four options A, B, C and D, with exactly ONE best answer.
+- ${$("explain").value==="Explain all four options"?"Explain why the correct option is correct AND why each of the other three options is incorrect.":"Explain the correct answer."}
+- Do not invent facts or test material absent from the supplied content. If the source is insufficient for ${count} valid questions, say so in the JSON field source_limit and do not pad with unsupported questions.
+- Return ONLY valid JSON in this exact structure:
+{"source_limit":"","questions":[{"number":1,"question":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"A","explanations":{"A":"...","B":"...","C":"...","D":"..."},"concept":"..."}]}
+STUDY MATERIAL:
+${text}`;
+}
+function render(){
+$("resultsCard").classList.remove("hidden");$("resultCount").textContent=generated.length+" questions";
+$("results").innerHTML=generated.map((q,i)=>`<div class="question"><strong>Q${q.number||i+1}. ${esc(q.question)}</strong><div>${["A","B","C","D"].map(k=>`<div class="opt ${q.answer===k?"correct":""}"><b>${k}.</b> ${esc(q.options?.[k]||"")}</div>`).join("")}</div><p><b>Correct answer: ${esc(q.answer||"")}</b> <span class="pill">${esc(q.concept||"")}</span></p><div class="explain">${["A","B","C","D"].map(k=>`<p><b>${k}:</b> ${esc(q.explanations?.[k]||"")}</p>`).join("")}</div></div>`).join("");
+}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+$("generate").onclick=async()=>{
+ const key=$("apiKey").value.trim();if(!key){$("status").textContent="Please enter your Gemini API key.";return;}
+ if(!$("files").files.length){$("status").textContent="Please upload at least one PDF or image.";return;}
+ if(!extractedText.trim()&&!imageParts.length){$("status").textContent="No readable text or images found in the selected files.";return;}
+ const count=Number($("count").value);$("generate").disabled=true;$("status").textContent="Preparing study material...";
+ try{
+   let text=extractedText.slice(0,85000);if(extractedText.length>85000)text+="\n[Note: source text truncated due to request size.]";
+   const parts=[{text:buildPrompt(text,count)},...imageParts];
+   $("status").textContent="AI is analysing your material and creating questions. This may take a minute...";
+   const model="gemini-2.5-flash";
+   const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({contents:[{role:"user",parts}],generationConfig:{temperature:0.35,responseMimeType:"application/json"}})
+   });
+   const data=await response.json();if(!response.ok)throw Error(data.error?.message||"AI request failed. Check your API key and usage limits.");
+   const raw=data.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("")||"";
+   const parsed=JSON.parse(raw.replace(/^```json\s*/i,"").replace(/```$/,"").trim());
+   generated=parsed.questions||[];if(!generated.length)throw Error(parsed.source_limit||"The AI did not return questions.");
+   render();$("status").textContent=(parsed.source_limit?parsed.source_limit+"\n":"")+"Done! Generated "+generated.length+" MCQs.";
+ }catch(err){$("status").textContent="Could not generate MCQs: "+err.message;}
+ finally{$("generate").disabled=false;}
+};
+function plain(){return generated.map((q,i)=>`Q${q.number||i+1}. ${q.question}\n${["A","B","C","D"].map(k=>`${k}. ${q.options?.[k]||""}`).join("\n")}\nAnswer: ${q.answer}\n${["A","B","C","D"].map(k=>`${k}: ${q.explanations?.[k]||""}`).join("\n")}\nConcept: ${q.concept||""}`).join("\n\n----------------------\n\n");}
+$("copy").onclick=async()=>{await navigator.clipboard.writeText(plain());$("status").textContent="Questions copied to clipboard.";};
+$("download").onclick=()=>{const blob=new Blob([plain()],{type:"text/plain"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="MCQ_Forge_Questions.txt";a.click();URL.revokeObjectURL(a.href);};
+</script>
+</body>
+</html>
